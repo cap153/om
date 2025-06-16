@@ -18,11 +18,44 @@
 # 使用方法
 
 1. 打开obs依次点击工具、WebSocket 服务器设置、开启 WebSocket 服务器、应用、确定(如果开启身份认证需要修改OBS_PASSWORD的值为服务器密码重新编译)。
-2. 设置一个快捷键创建一个用作信号的临时文件`/tmp/obs_mpv_toggle_pause`，以我使用的sway为例：
+2. 设置一个快捷键创建一个用作信号的临时文件`/tmp/obs_mpv_toggle_pause`，
 
-    ```bash
-    bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
-    ```
+    1. 如果是在**linux**，以我使用的窗口管理器sway为例：
+
+        ```bash
+        bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
+        ```
+
+    2. 如果是在**windows**，可以借助[autohotkey](https://www.autohotkey.com/)
+
+        ```bash
+        ; 设置快捷键为 Alt + ;
+        !;::
+        {
+            ; 获取系统临时文件夹的路径。
+            TempPath := EnvGet("TEMP")
+
+            ; 构建触发文件的完整路径。
+            TriggerFilePath := TempPath . "\obs_mpv_toggle_pause"
+            
+            ; 创建触发文件。
+            FileAppend("", TriggerFilePath)
+        }
+        ```
+
+        为了方便你以后自定义，这里是几个常用的修饰符：
+
+            ! 表示 Alt 键
+            # 表示 Win 键 (Windows徽标键)
+            ^ 表示 Ctrl 键
+            + 表示 Shift 键
+
+        一些例子：
+
+            ^j:: 对应 Ctrl + J
+            +F1:: 对应 Shift + F1
+            ^!s:: 对应 Ctrl + Alt + S
+            #space:: 对应 Win + 空格键
 
 3. 使用本程序打开想要mpv同步播放的媒体文件：
 
