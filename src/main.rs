@@ -8,7 +8,10 @@ use serde_json::json;
 
 // --- 在这里设置你的 OBS WebSocket 密码 ---
 // 如果 OBS 没有设置密码，请将此设置为空字符串: ""
-const OBS_PASSWORD: &str = ""; // 请修改为你的密码
+const OBS_PASSWORD: &str = "";
+// --- 这是用于判断快捷键触发的文件 ---
+// 在sway等窗口管理器添加类似快捷键bindsym $mod+o exec touch /tmp/rust_mpv_toggle_pause
+const TRIGGER_FILE: &str = "/tmp/rust_mpv_toggle_pause";
 
 // --- 修正：专门用于调用 obs-cmd 的辅助函数 ---
 // 现在它会正确地构建 websocket URL 来包含密码
@@ -91,9 +94,8 @@ fn main() {
     }
     let video_file = &args[1];
     let socket_path = "/tmp/mpv.sock";
-    let trigger_file = "/tmp/rust_mpv_toggle_pause";
 
-    fs::remove_file(trigger_file).ok();
+    fs::remove_file(TRIGGER_FILE).ok();
 
     let _mpv_handle = match MpvProcess::start(video_file, socket_path) {
         Ok(handle) => handle,
@@ -113,14 +115,14 @@ fn main() {
         println!("OBS 已开始录制。");
     }
 
-    println!("Sway 快捷键已被设置为触摸 '{}'", trigger_file);
+    println!("Sway 快捷键已被设置为触摸 '{}'", TRIGGER_FILE);
     println!("程序正在后台监听快捷键... 按 Ctrl+C 退出。");
     
     let toggle_pause_command = json!({"command": ["cycle", "pause"]});
     let mut is_paused_state = false;
 
     loop {
-        if fs::metadata(trigger_file).is_ok() {
+        if fs::metadata(TRIGGER_FILE).is_ok() {
             println!("\n快捷键触发！");
 
             // 1. 控制 mpv
@@ -144,7 +146,7 @@ fn main() {
             }
             is_paused_state = !is_paused_state;
 
-            if let Err(e) = fs::remove_file(trigger_file) {
+            if let Err(e) = fs::remove_file(TRIGGER_FILE) {
                 eprintln!("-> 无法删除触发文件: {}", e);
             }
         }
