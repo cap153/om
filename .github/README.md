@@ -1,3 +1,5 @@
+[中文文档](README_CN.md) 
+
 > [!NOTE]  
 > This is a utility developed in Rust that allows you to use a global hotkey to synchronously control the recording state (pause/resume) of OBS Studio and the playback state (pause/play) of the MPV player. It's ideal for recording tutorials, reaction videos, or any scenario that requires synchronizing a screen recording with media playback.
 
