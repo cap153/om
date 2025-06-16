@@ -10,8 +10,8 @@
 
 # 环境需求
 
-* linux
-* [obs-studio-with-websockets](https://github.com/obsproject/obs-websocket)
+* linux 或 windows 系统
+* 带有[obs-websocket](https://github.com/obsproject/obs-websocket)的[OBS Studio](https://obsproject.com/)  
 * [mpv](https://mpv.io/installation/)
 * [obs-cmd](https://github.com/grigio/obs-cmd)
 
