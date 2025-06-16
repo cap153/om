@@ -10,8 +10,8 @@ use serde_json::json;
 // 如果 OBS 没有设置密码，请将此设置为空字符串: ""
 const OBS_PASSWORD: &str = "";
 // --- 这是用于判断快捷键触发的文件 ---
-// 在sway等窗口管理器添加类似快捷键bindsym $mod+o exec touch /tmp/rust_mpv_toggle_pause
-const TRIGGER_FILE: &str = "/tmp/rust_mpv_toggle_pause";
+// 在sway等窗口管理器添加类似快捷键bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
+const TRIGGER_FILE: &str = "/tmp/obs_mpv_toggle_pause";
 
 // --- 修正：专门用于调用 obs-cmd 的辅助函数 ---
 // 现在它会正确地构建 websocket URL 来包含密码

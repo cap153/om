@@ -1,5 +1,5 @@
 [package]
-name = "obs_mpv"
+name = "om"
 version = "0.1.0"
 edition = "2024"
 
