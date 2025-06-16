@@ -1,58 +1,95 @@
 [中文文档](README_CN.md) 
 
 > [!NOTE]  
-> This is a utility developed in Rust that allows you to use a global hotkey to synchronously control the recording state (pause/resume) of OBS Studio and the playback state (pause/play) of the MPV player. It's ideal for recording tutorials, reaction videos, or any scenario that requires synchronizing a screen recording with media playback.
+> This is a handy utility, written in Rust, that allows you to use a single global hotkey to synchronously control the recording state (pause/resume) of OBS Studio and the playback state (pause/play) of the MPV player. It's perfect for recording tutorials, reaction videos, or any scenario that requires syncing screen recording with media playback.
 
 # Features
 
-*   **One-Click Sync**: Automatically starts OBS recording and MPV playback when the program launches.
-*   **Global Control**: Toggle the pause/resume state of both OBS and MPV simultaneously using a single hotkey configured in your window manager (e.g., Sway).
-*   **Safe Exit**: Automatically stops the OBS recording and saves the file, while also closing the MPV process upon exit, preventing data loss or zombie processes.
-*   **Secure Connection**: Supports password-protected OBS WebSocket connections. Simply modify the password variable in the source code before compiling.
+*   **Synchronized Start:** Automatically starts OBS recording and MPV playback when the program launches.
+*   **Global Control:** Toggle the pause/resume state of both OBS and MPV simultaneously with a global hotkey.
+*   **Safe Exit:** Automatically stops the OBS recording and saves the file when MPV is closed, preventing data loss or zombie processes.
+*   **Secure Connection:** Supports password-protected OBS WebSocket connections. Simply edit the password variable in the source code before compiling.
 
-# Prerequisites
+# Requirements
 
-*   Linux
-*   [obs-studio-with-websockets](https://github.com/obsproject/obs-websocket)
-*   [mpv](https://mpv.io/installation/)
+*   Linux / Windows
+*   [OBS Studio](https://obsproject.com/) with the [obs-websocket](https://github.com/obsproject/obs-websocket) plugin installed
+*   [MPV](https://mpv.io/installation/)
 *   [obs-cmd](https://github.com/grigio/obs-cmd)
 
 # How to Use
 
-1.  In OBS, navigate to `Tools` -> `WebSocket Server Settings`. Check `Enable WebSocket Server`, then click `Apply` and `OK`. (If you enable authentication, you must edit the `OBS_PASSWORD` value and recompile).
-2.  Set up a hotkey to create a temporary signal file at `/tmp/obs_mpv_toggle_pause`. For example, using Sway:
+1.  In OBS Studio, navigate to `Tools` > `WebSocket Server Settings`. Ensure `Enable WebSocket Server` is checked, then click `Apply` and `OK`. (If you enable authentication, you will need to set the `OBS_PASSWORD` variable to your server password and recompile the program).
+
+2.  Set up a global hotkey to create a temporary "trigger file" at `/tmp/obs_mpv_toggle_pause`.
+
+    1.  **On Linux**, using a window manager like Sway as an example:
+
+        ```bash
+        bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
+        ```
+
+    2.  **On Windows**, you can use [AutoHotkey](https://www.autohotkey.com/). Below is an example for AutoHotkey v2. (Note: Running multiple scripts simultaneously may cause conflicts. Please close other scripts or merge this into your existing script and reload it).
+
+        ```ahk
+        ; Set the hotkey to Alt + ;
+        !;::
+        {
+            ; Get the path to the system's temporary folder.
+            TempPath := EnvGet("TEMP")
+
+            ; Construct the full path for the trigger file.
+            TriggerFilePath := TempPath . "\obs_mpv_toggle_pause"
+            
+            ; Create the trigger file (FileAppend creates the file if it doesn't exist).
+            FileAppend("", TriggerFilePath)
+        }
+        ```
+
+        For future customization, here are some common AutoHotkey modifiers:
+
+        *   `!` : Alt key
+        *   `#` : Win key (Windows logo key)
+        *   `^` : Ctrl key
+        *   `+` : Shift key
+
+        Examples:
+
+        *   `^j::` corresponds to Ctrl + J
+        *   `+F1::` corresponds to Shift + F1
+        *   `^!s::` corresponds to Ctrl + Alt + S
+        *   `#space::` corresponds to Win + Space
+
+3.  Run this program with the media file you want to play in MPV:
 
     ```bash
-    bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
+    om /path/to/your/media.mp3 # Change this to your media file path
     ```
 
-3.  Run this program with the path to the media file you want to sync with MPV:
+4.  After the program starts, OBS will begin recording, and MPV will play your media file. You can now use the hotkey you set up to synchronously toggle the state of both OBS and MPV.
 
-    ```bash
-    om /path/to/media.mp3 # Change this to your media path
-    ```
+# Manual Compilation
 
-4.  After launching the program, OBS will begin recording and MPV will start playing your media file. You can now use the previously configured hotkey to synchronously toggle the state of OBS and MPV.
+1.  Install the [Rust toolchain](https://www.rust-lang.org/tools/install) if you haven't already.
 
-# Building from Source
+2.  Clone this repository and navigate into the directory.
 
-1.  Install the Rust toolchain first.
-2.  Clone this repository and `cd` into it.
-3.  Edit `src/main.rs` in the current directory to configure the OBS WebSocket server password (leave it empty if authentication is disabled).
+3.  Edit `src/main.rs` to configure your OBS WebSocket password. (Leave the string empty if authentication is disabled).
 
     ```rust
-    const OBS_PASSWORD: &str = "Enter your password here";
-    ```    
-4.  Compile and Install
-
-    *   Running `cargo install` below will place the executable at `~/.cargo/bin/om`.
-
-    ```bash
-    cargo install --path .
+    const OBS_PASSWORD: &str = "your_password_here";
     ```
 
-    *   If you only want to build the project, the executable will be located at `target/release/om` in the current directory.
+4.  Compile and Install:
 
-    ```bash
-    cargo build --release
-    ```
+    *   The following `cargo install` command will compile the program and place the executable at `~/.cargo/bin/om`:
+
+        ```bash
+        cargo install --path .
+        ```
+
+    *   If you just want to build the executable, it will be located at `target/release/om` in the project directory:
+
+        ```bash
+        cargo build --release
+        ```

@@ -4,8 +4,8 @@
 # 功能特性
 
 * 一键同步：启动程序时，自动开始 OBS 录制和 MPV 播放。
-* 全局控制：通过在窗口管理器（如 Sway）中设置的单一快捷键，同时切换 OBS 和 MPV 的暂停/恢复状态。
-* 安全退出：结束程序时，会自动停止 OBS 录制并保存文件，同时关闭 MPV 进程，防止数据丢失或产生僵尸进程。
+* 全局控制：通过快捷键，同时切换 OBS 和 MPV 的暂停/恢复状态。
+* 安全退出：关闭MPV后，会自动停止 OBS 录制并保存文件，防止数据丢失或产生僵尸进程。
 * 安全连接：支持带密码的 OBS WebSocket 连接，只需在编译前修改源码中的密码变量即可。
 
 # 环境需求
@@ -20,13 +20,13 @@
 1. 打开obs依次点击工具、WebSocket 服务器设置、开启 WebSocket 服务器、应用、确定(如果开启身份认证需要修改OBS_PASSWORD的值为服务器密码重新编译)。
 2. 设置一个快捷键创建一个用作信号的临时文件`/tmp/obs_mpv_toggle_pause`，
 
-    1. 如果是在**linux**，以我使用的窗口管理器sway为例：
+    1. 在**linux**，以我使用的窗口管理器sway为例：
 
         ```bash
         bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
         ```
 
-    2. 如果是在**windows**，可以借助[autohotkey](https://www.autohotkey.com/)
+    2. 在**windows**，可以借助[autohotkey](https://www.autohotkey.com/)，下面是一个v2版本的示例(多个脚本同时运行可能会失效，请提前退出其他脚本，或追加到以前的脚本重新加载)
 
         ```bash
         ; 设置快捷键为 Alt + ;
@@ -83,7 +83,7 @@
     cargo install --path .
     ```
 
-    * 如果只是想构建，将会放到当前目录的`target/release/om`
+    * 如果只是想构建，将会放到当前项目目录的`target/release/om`
 
     ```bash
     cargo build --release
