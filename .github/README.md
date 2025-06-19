@@ -32,8 +32,8 @@
     2.  **On Windows**, you can use [AutoHotkey](https://www.autohotkey.com/). Below is an example for AutoHotkey v2. (Note: Running multiple scripts simultaneously may cause conflicts. Please close other scripts or merge this into your existing script and reload it).
 
         ```ahk
-        ; Set the hotkey to Alt + ;
-        !;::
+        ; Alt + d to Create a signal file to switch obs screen recording status
+        !d::
         {
             ; Get the path to the system's temporary folder.
             TempPath := EnvGet("TEMP")

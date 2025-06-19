@@ -29,8 +29,8 @@
     2. 在**windows**，可以借助[autohotkey](https://www.autohotkey.com/)，下面是一个v2版本的示例(多个脚本同时运行可能会失效，请提前退出其他脚本，或追加到以前的脚本重新加载)
 
         ```bash
-        ; 设置快捷键为 Alt + ;
-        !;::
+        ; Alt + d 创建信号文件切换obs录屏状态
+        !d::
         {
             ; 获取系统临时文件夹的路径。
             TempPath := EnvGet("TEMP")
