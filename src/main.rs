@@ -172,10 +172,8 @@ fn send_mpv_command(
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        // 在 Windows 上，人们可能通过双击运行，提示信息更友好一些
         eprintln!("用法: 请将视频文件拖拽到此程序的 exe 文件上，");
         eprintln!("   或通过命令行运行: {} <视频文件路径>", args[0]);
-        // 在 Windows 上，添加一个暂停，以便用户能看到错误信息
         if cfg!(windows) {
             println!("按 Enter 键退出...");
             let _ = std::io::stdin().read_line(&mut String::new());
@@ -184,7 +182,6 @@ fn main() {
     }
     let video_file = &args[1];
 
-    // --- CHANGED: 使用跨平台辅助函数 ---
     let trigger_file_path = get_trigger_file_path();
     let socket_path_for_cli = get_ipc_path_for_cli();
     let socket_path_for_connect = get_ipc_path_for_connect();
@@ -196,53 +193,62 @@ fn main() {
         fs::remove_file(&socket_path_for_cli).ok();
     }
 
-    let mut _mpv_handle = match MpvProcess::start(video_file, &socket_path_for_cli) {
-        // 注意：这里需要 `mut`，因为 has_exited 需要可变引用
-        Ok(handle) => handle,
-        Err(e) => {
-            eprintln!("启动 mpv 失败: {e}。请确保 mpv 已安装并在系统的 PATH 环境变量中。");
-            return;
-        }
-    };
-    println!("mpv 已启动。播放文件: {}", video_file);
-
-    // 等待 mpv 完全启动并创建好 IPC socket/pipe
-    thread::sleep(Duration::from_millis(1000));
-
+    // --- 顺序调整：1. 首先，启动 OBS 录制 ---
     println!("正在启动 OBS 录制...");
     if let Err(e) = run_obs_command(OBS_PASSWORD, &["recording", "start"]) {
         eprintln!(
-            "警告: 启动 OBS 录制失败: {e}。请确保 OBS 正在运行，并且 obs-websocket 插件已正确配置（端口、密码等）。"
+            "错误: 启动 OBS 录制失败: {e}。请确保 OBS 正在运行，并且 obs-websocket 插件已正确配置（端口、密码等）。"
         );
+        eprintln!("程序将退出。");
+        // 如果 OBS 启动失败，就没有必要继续了
+        return;
     } else {
         println!("OBS 已开始录制。");
     }
+    
+    // --- 顺序调整：2. 然后，启动 MPV ---
+    println!("正在启动 mpv...");
+    let mut _mpv_handle = match MpvProcess::start(video_file, &socket_path_for_cli) {
+        Ok(handle) => {
+            println!("mpv 已启动。播放文件: {}", video_file);
+            handle
+        }
+        Err(e) => {
+            eprintln!("错误: 启动 mpv 失败: {e}。请确保 mpv 已安装并在系统的 PATH 环境变量中。");
+            // 【重要】mpv 启动失败，需要停止刚刚开始的 OBS 录制
+            println!("正在停止 OBS 录制以进行清理...");
+            if let Err(stop_err) = run_obs_command(OBS_PASSWORD, &["recording", "stop"]) {
+                eprintln!("警告：自动停止 OBS 录制也失败了：{}", stop_err);
+            }
+            return;
+        }
+    };
+
+    // 等待 mpv 完全启动并创建好 IPC socket/pipe
+    // 这个等待仍然是必要的，以确保后续的IPC命令可以成功发送
+    thread::sleep(Duration::from_millis(1000));
 
     println!("快捷键触发方式: 创建文件 '{}'", trigger_file_path.display());
-    println!("程序正在后台监听快捷键... 直接关闭 mpv 退出。");
+    println!("程序正在后台监听快捷键... 直接关闭 mpv 窗口即可退出。");
 
     let toggle_pause_command = json!({"command": ["cycle", "pause"]});
     let mut is_paused_state = false;
 
     loop {
-        // 在处理快捷键之前，先检查 mpv 进程是否已经自己退出了
         if _mpv_handle.has_exited() {
             println!("\n检测到 mpv 窗口已关闭。准备退出程序...");
-            break; // 跳出无限循环
+            break; 
         }
 
-        // --- CHANGED: 使用跨平台路径 ---
         if trigger_file_path.exists() {
             println!("\n快捷键触发！");
 
-            // 1. 控制 mpv
             println!("正在切换 mpv 播放/暂停状态...");
             match send_mpv_command(&socket_path_for_connect, &toggle_pause_command) {
                 Ok(response) => println!("-> mpv 响应: {}", response.trim()),
                 Err(e) => eprintln!("-> 向 mpv 发送命令失败: {}", e),
             }
 
-            // 2. 控制 OBS (逻辑不变)
             if is_paused_state {
                 println!("正在恢复 OBS 录制...");
                 if let Err(e) = run_obs_command(OBS_PASSWORD, &["recording", "resume"]) {
@@ -256,7 +262,6 @@ fn main() {
             }
             is_paused_state = !is_paused_state;
 
-            // --- CHANGED: 使用跨平台路径 ---
             if let Err(e) = fs::remove_file(&trigger_file_path) {
                 eprintln!("-> 无法删除触发文件: {}", e);
             }
