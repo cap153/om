@@ -9,17 +9,30 @@ use std::time::Duration;
 
 use interprocess::local_socket::LocalSocketStream;
 
+// --- 常量配置 ---
 const OBS_PASSWORD: &str = "";
 const TRIGGER_PAUSE_NAME: &str = "obs_mpv_toggle_pause";
-const TRIGGER_NEXT_NAME: &str = "mpv_toggle_next"; // 新增：下一曲触发文件名
+const TRIGGER_NEXT_NAME: &str = "mpv_toggle_next";
 const IPC_SOCKET_NAME: &str = "mpv.sock";
+const DEFAULT_LIST_NAME: &str = "slicer_opt.list";
 
-// --- 路径辅助函数 ---
+#[derive(Debug, Clone)]
+struct MediaItem {
+    path: PathBuf,
+    text: String,
+}
+
+// --- 1. 跨平台路径与通知辅助 ---
+
 fn get_trigger_path(name: &str) -> PathBuf {
     env::temp_dir().join(name)
 }
 
 fn get_ipc_path_for_cli() -> String {
+    #[cfg(windows)]
+    {
+        format!(r"\\.\pipe\{}", IPC_SOCKET_NAME)
+    }
     #[cfg(unix)]
     {
         env::temp_dir()
@@ -30,6 +43,10 @@ fn get_ipc_path_for_cli() -> String {
 }
 
 fn get_ipc_path_for_connect() -> String {
+    #[cfg(windows)]
+    {
+        IPC_SOCKET_NAME.to_string()
+    }
     #[cfg(unix)]
     {
         env::temp_dir()
@@ -39,37 +56,154 @@ fn get_ipc_path_for_connect() -> String {
     }
 }
 
-// --- 媒体文件扫描 ---
-fn collect_media_files(paths: &[String]) -> Vec<String> {
-    let mut files = Vec::new();
-    let extensions = ["mp3", "wav", "flac", "mp4", "mkv", "mov"];
+fn show_notification(text: &str) {
+    if text.is_empty() {
+        return;
+    }
 
-    for p in paths {
-        let path = Path::new(p);
-        if path.is_file() {
-            files.push(path.to_string_lossy().into_owned());
-        } else if path.is_dir() {
-            if let Ok(entries) = fs::read_dir(path) {
+    #[cfg(windows)]
+    {
+        let safe_text = text.replace("'", "''");
+        // 标题设为空字符串，在 Windows 中会显得更精简
+        let script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $n = New-Object System.Windows.Forms.NotifyIcon; \
+             $n.Icon = [System.Drawing.SystemIcons]::Information; \
+             $n.Visible = $true; \
+             $n.ShowBalloonTip(5000, '', '{}', [System.Windows.Forms.ToolTipIcon]::None)",
+            safe_text
+        );
+        let _ = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
+            .spawn();
+    }
+
+    #[cfg(unix)]
+    {
+        // Linux 下将标题设为内容，或者设为空字符串
+        let _ = Command::new("notify-send")
+            .arg("") // 留空标题
+            .arg(text)
+            .spawn();
+    }
+}
+
+// --- 2. 优化后的解析逻辑 ---
+
+fn parse_sovits_list(list_path: &Path, search_root: Option<&Path>) -> Vec<MediaItem> {
+    let mut items = Vec::new();
+    let list_parent = list_path.parent().unwrap_or(Path::new("."));
+
+    if let Ok(file) = fs::File::open(list_path) {
+        let reader = BufReader::new(file);
+        for line in reader.lines().flatten() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 4 {
+                let raw_path_str = parts[0].trim().replace('\\', "/");
+                let text = parts[3].trim().to_string();
+
+                let raw_path = Path::new(&raw_path_str);
+                let file_name = raw_path.file_name().unwrap_or_default();
+
+                // 路径尝试策略：
+                // 1. 尝试 list 文件所在的相对路径
+                let mut final_path = list_parent.join(&raw_path_str);
+
+                // 2. 如果不存在，尝试在用户指定的 search_root 里找文件名
+                if !final_path.exists() {
+                    if let Some(root) = search_root {
+                        // 尝试 root + 原始路径后半段
+                        final_path = root.join(file_name);
+
+                        // 3. 如果还是不存在，尝试 root + 原始路径全段 (处理相对路径重叠)
+                        if !final_path.exists() {
+                            final_path = root.join(&raw_path_str);
+                        }
+                    }
+                }
+
+                // 调试输出：如果依然找不到，打印一下。
+                if !final_path.exists() {
+                    eprintln!(
+                        "警告: 无法定位音频文件: {} (尝试路径: {:?})",
+                        raw_path_str, final_path
+                    );
+                }
+
+                items.push(MediaItem {
+                    path: final_path,
+                    text,
+                });
+            }
+        }
+    }
+    items
+}
+
+// --- 3. 优化后的资源搜集 ---
+
+fn collect_items(args: &[String], list_flag: Option<String>) -> Vec<MediaItem> {
+    // 确定搜索根目录（取 args 中第一个存在的目录）
+    let search_root = args.iter().map(Path::new).find(|p| p.is_dir());
+
+    // 如果指定了 -l
+    if let Some(lp) = list_flag {
+        let p = Path::new(&lp);
+        if p.exists() {
+            return parse_sovits_list(p, search_root);
+        }
+    }
+
+    // 如果没指定 -l，在 args 目录里搜 slicer_opt.list
+    if let Some(root) = search_root {
+        let potential_list = root.join(DEFAULT_LIST_NAME);
+        if potential_list.exists() {
+            return parse_sovits_list(&potential_list, Some(root));
+        }
+    }
+
+    // 兜底：原来的逻辑，仅扫描媒体文件
+    let mut files = Vec::new();
+    let exts = ["mp3", "wav", "flac", "mp4", "mkv"];
+    for arg in args {
+        let p = Path::new(arg);
+        if p.is_file() {
+            files.push(MediaItem {
+                path: p.to_path_buf(),
+                text: String::new(),
+            });
+        } else if p.is_dir() {
+            if let Ok(entries) = fs::read_dir(p) {
                 for entry in entries.flatten() {
                     let ep = entry.path();
                     if ep.is_file()
-                        && extensions
+                        && exts
                             .iter()
-                            .any(|&ext| ep.extension().map_or(false, |e| e == ext))
+                            .any(|&e| ep.extension().map_or(false, |ext| ext == e))
                     {
-                        files.push(ep.to_string_lossy().into_owned());
+                        files.push(MediaItem {
+                            path: ep,
+                            text: String::new(),
+                        });
                     }
                 }
             }
         }
     }
-    files.sort(); // 确保播放顺序
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     files
 }
 
-// --- OBS & MPV 控制 ---
+// --- 4. 进程与 IPC 控制 ---
+
 fn run_obs_command(password: &str, args: &[&str]) -> Result<Output, std::io::Error> {
-    let mut full_args: Vec<String> = Vec::new();
+    let mut full_args = Vec::new();
     if !password.is_empty() {
         full_args.push("--websocket".to_string());
         full_args.push(format!("obsws://localhost:4455/{}", password));
@@ -85,17 +219,14 @@ struct MpvProcess {
 }
 
 impl MpvProcess {
-    fn start(files: &[String], socket_path: &str) -> Result<Self, std::io::Error> {
-        let mut cmd = Command::new("mpv");
-        cmd.args(files)
+    fn start(socket_path: &str) -> Result<Self, std::io::Error> {
+        let child = Command::new("mpv")
+            .arg("--idle=yes")
             .arg(format!("--input-ipc-server={}", socket_path))
             .arg("--force-window")
-            .arg("--idle=yes")
-            .arg("--keep-open=always") // 每个文件播完都停住
-            .arg("--reset-on-next-file=pause") // 切换到新文件时自动暂停
-            .arg("--pause=yes"); // 初始暂停
-
-        let child = cmd.spawn()?;
+            .arg("--keep-open=always") // 播完停在末尾，不自动跳
+            .arg("--pause=yes") // 仅初始启动时暂停
+            .spawn()?;
         Ok(MpvProcess { child })
     }
 
@@ -128,25 +259,33 @@ fn send_mpv_command(
     let mut reader = BufReader::new(stream);
     let mut cmd_str = command.to_string();
     cmd_str.push('\n');
-    reader.get_mut().write_all(cmd_str.as_bytes())?;
+
+    let writer = reader.get_mut();
+    writer.write_all(cmd_str.as_bytes())?;
+
     let mut response = String::new();
-    reader.read_line(&mut response)?;
+    let _ = reader.read_line(&mut response);
     Ok(response)
 }
 
+// --- 5. 主程序 ---
+
 fn main() {
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty() {
-        println!(
-            "用法: {} <文件或文件夹路径...>",
-            env::args().next().unwrap()
-        );
-        return;
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    let mut list_param = None;
+
+    // 解析 -l / --list
+    if let Some(pos) = args.iter().position(|x| x == "-l" || x == "--list") {
+        if pos + 1 < args.len() {
+            list_param = Some(args[pos + 1].clone());
+            args.remove(pos + 1);
+            args.remove(pos);
+        }
     }
 
-    let media_files = collect_media_files(&args);
-    if media_files.is_empty() {
-        println!("未找到有效的媒体文件。");
+    let playlist = collect_items(&args, list_param);
+    if playlist.is_empty() {
+        println!("错误: 未找到任何媒体文件或有效的 list 文件。");
         return;
     }
 
@@ -155,69 +294,85 @@ fn main() {
     let socket_cli = get_ipc_path_for_cli();
     let socket_conn = get_ipc_path_for_connect();
 
-    // 清理残留
     let _ = fs::remove_file(&pause_trigger);
     let _ = fs::remove_file(&next_trigger);
 
     println!("正在启动 OBS 录制...");
-    if let Err(e) = run_obs_command(OBS_PASSWORD, &["recording", "start"]) {
-        eprintln!("OBS 启动失败: {e}");
-        return;
-    }
+    let _ = run_obs_command(OBS_PASSWORD, &["recording", "start"]);
+
+    println!("正在启动 mpv (Idle模式)...");
+    let mut mpv_handle = MpvProcess::start(&socket_cli).expect("mpv 启动失败");
+    thread::sleep(Duration::from_millis(800));
+
+    let mut current_idx: Option<usize> = None;
+    let mut is_paused = false;
 
     println!(
-        "正在启动 mpv 并加载播放列表 (共 {} 个文件)...",
-        media_files.len()
+        "已加载 {} 个条目。等待触发 next 以开始播放第一条。",
+        playlist.len()
     );
-    let mut mpv_handle = MpvProcess::start(&media_files, &socket_cli).expect("mpv 启动失败");
-
-    thread::sleep(Duration::from_millis(1000));
-    println!(
-        "监听中...\n- 暂停/恢复录制: touch {}\n- 播放下一集: touch {}",
-        pause_trigger.display(),
-        next_trigger.display()
-    );
-
-    let cmd_pause_toggle = json!({"command": ["cycle", "pause"]});
-    let cmd_next = json!({"command": ["playlist-next", "force"]});
-    let cmd_play = json!({"command": ["set_property", "pause", false]});
-
-    let mut is_paused = true;
 
     loop {
         if mpv_handle.has_exited() {
             break;
         }
 
-        // 处理 暂停/恢复
-        if pause_trigger.exists() {
-            let _ = fs::remove_file(&pause_trigger);
-            let _ = send_mpv_command(&socket_conn, &cmd_pause_toggle);
-
-            // 这里建议通过 IPC 获取真实 pause 状态，简单处理则取反
-            if is_paused {
-                let _ = run_obs_command(OBS_PASSWORD, &["recording", "resume"]);
-            } else {
-                let _ = run_obs_command(OBS_PASSWORD, &["recording", "pause"]);
-            }
-            is_paused = !is_paused;
-        }
-
-        // 处理 下一集：切换并开始
+        // 处理 下一首 (核心逻辑)
         if next_trigger.exists() {
             let _ = fs::remove_file(&next_trigger);
 
-            // 1. 发送切换指令
-            let _ = send_mpv_command(&socket_conn, &cmd_next);
-            // 2. 稍微等待 mpv 加载新文件（IPC 响应有微小延迟）
-            thread::sleep(Duration::from_millis(50));
-            // 3. 发送播放指令 (因为 reset-on-next-file 会让它处于暂停状态)
-            let _ = send_mpv_command(&socket_conn, &cmd_play);
-            // 4. 同步 OBS
-            let _ = run_obs_command(OBS_PASSWORD, &["recording", "resume"]);
-            is_paused = false;
+            let next_idx = match current_idx {
+                None => 0,
+                Some(idx) => idx + 1,
+            };
 
-            println!(">> 已跳转至下一集并自动开始录制");
+            if next_idx < playlist.len() {
+                let item = &playlist[next_idx];
+                println!(
+                    ">> 播放 [{} / {}]: {}",
+                    next_idx + 1,
+                    playlist.len(),
+                    item.text
+                );
+
+                // 1. 发送加载指令 (replace 模式)
+                let load_cmd =
+                    json!({"command": ["loadfile", item.path.to_string_lossy(), "replace"]});
+                let _ = send_mpv_command(&socket_conn, &load_cmd);
+
+                // 2. 显式解除暂停
+                // 不再只针对第一集，而是每一集切换都强制 set pause no
+                // 为了防止 mpv 忽略指令，我们可以在 load 之后紧跟一个 play
+                let play_cmd = json!({"command": ["set_property", "pause", false]});
+                let _ = send_mpv_command(&socket_conn, &play_cmd);
+
+                // 3. 同步 OBS 录制状态
+                // let _ = run_obs_command(OBS_PASSWORD, &["recording", "resume"]);
+
+                // 4. 发送简洁版通知 (无标题)
+                show_notification(&item.text);
+
+                current_idx = Some(next_idx);
+                is_paused = false; // 状态位同步
+            } else {
+                println!(">> 已到达播放列表末尾。");
+            }
+        }
+
+        // 处理 暂停/恢复
+        if pause_trigger.exists() {
+            let _ = fs::remove_file(&pause_trigger);
+            if current_idx.is_some() {
+                let _ = send_mpv_command(&socket_conn, &json!({"command": ["cycle", "pause"]}));
+                if is_paused {
+                    let _ = run_obs_command(OBS_PASSWORD, &["recording", "resume"]);
+                    println!(">> 恢复播放");
+                } else {
+                    let _ = run_obs_command(OBS_PASSWORD, &["recording", "pause"]);
+                    println!(">> 暂停播放");
+                }
+                is_paused = !is_paused;
+            }
         }
 
         thread::sleep(Duration::from_millis(100));
