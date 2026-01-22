@@ -1,95 +1,98 @@
 [中文文档](README_CN.md) 
 
-> [!NOTE]  
-> This is a handy utility, written in Rust, that allows you to use a single global hotkey to synchronously control the recording state (pause/resume) of OBS Studio and the playback state (pause/play) of the MPV player. It's perfect for recording tutorials, reaction videos, or any scenario that requires syncing screen recording with media playback.
+# OBS-MPV Sync Control (om)
 
-# Features
+> [!NOTE]
+> This is a powerful utility, written in Rust, that allows you to synchronously control OBS Studio recording and MPV playback. It is specifically optimized for **Voice-Over recording** and **Content Creation**, featuring one-by-one manual playback and synchronized lyric/subtitles notifications.
 
-*   **Synchronized Start:** Automatically starts OBS recording and MPV playback when the program launches.
-*   **Global Control:** Toggle the pause/resume state of both OBS and MPV simultaneously with a global hotkey.
-*   **Safe Exit:** Automatically stops the OBS recording and saves the file when MPV is closed, preventing data loss or zombie processes.
-*   **Secure Connection:** Supports password-protected OBS WebSocket connections. Simply edit the password variable in the source code before compiling.
+# New Features
+
+* **Synchronized Control:** Toggle pause/resume for both OBS and MPV simultaneously via global hotkeys.
+* **Manual Stepped Playback:** Instead of auto-playing, it loads the next file only when triggered, staying paused at the end of each clip.
+* **GPT-SoVITS Integration:** Automatically parses `slicer_opt.list` files to display lyrics/subtitles as system notifications (Linux `notify-send` / Windows Toast).
+* **Smart Path Mapping:** Automatically resolves audio file paths even if the list file contains Windows-style relative paths or is moved.
+* **Safe Exit:** Automatically stops OBS recording and cleans up MPV processes upon exit.
 
 # Requirements
 
-*   Linux / Windows
-*   [OBS Studio](https://obsproject.com/) with the [obs-websocket](https://github.com/obsproject/obs-websocket) plugin installed
-*   [MPV](https://mpv.io/installation/)
-*   [obs-cmd](https://github.com/grigio/obs-cmd)
+* Linux (COSMIC/Sway/X11) or Windows 10/11
+* [MPV Player](https://mpv.io/)
+* [OBS Studio](https://obsproject.com/) with WebSocket enabled (Optional, not required if you are just using mpv to play videos)
+* [obs-cmd](https://github.com/grigio/obs-cmd) (Ensure it's in your system PATH) (Optional, not required if you are just using mpv to play videos)
 
 # How to Use
 
-1.  In OBS Studio, navigate to `Tools` > `WebSocket Server Settings`. Ensure `Enable WebSocket Server` is checked, then click `Apply` and `OK`. (If you enable authentication, you will need to set the `OBS_PASSWORD` variable to your server password and recompile the program).
+### 1. Global Hotkeys Setup
 
-2.  Set up a global hotkey to create a temporary "trigger file" at `/tmp/obs_mpv_toggle_pause`.
+You need to set up two hotkeys to create "trigger files" in your system's temp directory.
 
-    1.  **On Linux**, using a window manager like Sway as an example:
+#### **On Windows (AutoHotkey v2):**
 
-        ```bash
-        bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
-        ```
+[https://www.autohotkey.com/](https://www.autohotkey.com/) 
 
-    2.  **On Windows**, you can use [AutoHotkey](https://www.autohotkey.com/). Below is an example for AutoHotkey v2. (Note: Running multiple scripts simultaneously may cause conflicts. Please close other scripts or merge this into your existing script and reload it).
+```ahk
+#Requires AutoHotkey v2.0
 
-        ```ahk
-        ; Alt + d to Create a signal file to switch obs screen recording status
-        !d::
-        {
-            ; Get the path to the system's temporary folder.
-            TempPath := EnvGet("TEMP")
+; Alt + D: Toggle Pause/Resume
+!d:: {
+    FileAppend("", EnvGet("TEMP") . "\obs_mpv_toggle_pause")
+}
 
-            ; Construct the full path for the trigger file.
-            TriggerFilePath := TempPath . "\obs_mpv_toggle_pause"
-            
-            ; Create the trigger file (FileAppend creates the file if it doesn't exist).
-            FileAppend("", TriggerFilePath)
-        }
-        ```
+; Alt + S: Next Track (Switch file and Resume recording)
+!S:: {
+    FileAppend("", EnvGet("TEMP") . "\mpv_toggle_next")
+}
 
-        For future customization, here are some common AutoHotkey modifiers:
+```
 
-        *   `!` : Alt key
-        *   `#` : Win key (Windows logo key)
-        *   `^` : Ctrl key
-        *   `+` : Shift key
+#### **On Linux (Sway/i3):**
 
-        Examples:
+```bash
+bindsym $mod+o exec touch /tmp/obs_mpv_toggle_pause
+bindsym $mod+n exec touch /tmp/mpv_toggle_next
 
-        *   `^j::` corresponds to Ctrl + J
-        *   `+F1::` corresponds to Shift + F1
-        *   `^!s::` corresponds to Ctrl + Alt + S
-        *   `#space::` corresponds to Win + Space
+```
 
-3.  Run this program with the media file you want to play in MPV:
+### 2. Launching the Program
 
-    ```bash
-    om /path/to/your/media.mp3 # Change this to your media file path
-    ```
+**Mode A: With GPT-SoVITS List (Recommended for Lyrics/Subtitles)**
+If you have a list file from GPT-SoVITS, the program will show lyrics/subtitles in system notifications.
 
-4.  After the program starts, OBS will begin recording, and MPV will play your media file. You can now use the hotkey you set up to synchronously toggle the state of both OBS and MPV.
+```bash
+om -l "C:\path\to\slicer_opt.list" "C:\path\to\audio_folder"
 
-# Manual Compilation
+```
 
-1.  Install the [Rust toolchain](https://www.rust-lang.org/tools/install) if you haven't already.
+**Mode B: Simple Directory Mode**
+Just play all audio files in a folder one by one.
 
-2.  Clone this repository and navigate into the directory.
+```bash
+om /path/to/your/audio_folder
 
-3.  Edit `src/main.rs` to configure your OBS WebSocket password. (Leave the string empty if authentication is disabled).
+```
 
-    ```rust
-    const OBS_PASSWORD: &str = "your_password_here";
-    ```
+# Detailed CLI Arguments
 
-4.  Compile and Install:
+* `-l, --list <PATH>`: Specify the path to the GPT-SoVITS `.list` file. If not provided, the program looks for `slicer_opt.list` in the target directory.
+* `<PATHS>...`: One or more paths to media files or directories.
 
-    *   The following `cargo install` command will compile the program and place the executable at `~/.cargo/bin/om`:
+# Configuration
 
-        ```bash
-        cargo install --path .
-        ```
+Before compiling, you can edit `src/main.rs` to set your OBS password:
 
-    *   If you just want to build the executable, it will be located at `target/release/om` in the project directory:
+```rust
+const OBS_PASSWORD: &str = "your_password_here";
+```
 
-        ```bash
-        cargo build --release
-        ```
+# Compilation
+
+```bash
+# Build release version
+cargo build --release
+
+# The executable will be at:
+# Windows: target/release/om.exe
+# Linux: target/release/om
+
+```
+
